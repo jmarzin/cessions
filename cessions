@@ -1,0 +1,82 @@
+# encoding: UTF-8
+
+require 'optparse'
+require 'csv'
+require 'json'
+require_relative 'lib/prep'
+require_relative 'lib/init'
+require_relative 'lib/injecte'
+require 'rubygems'
+require 'selenium-webdriver'
+
+options = {}
+OptionParser.new do |opts|
+  opts.banner = 'Usage : cessions [ options ]'
+  opts.on('-c fichier.csv", "Préparation à partir du fichier CSV') do |file|
+    if File.exist?(file)
+      if Dir.exists?('C:/cop')
+        STDERR.puts 'Attention, le répertoire c:/cop existe déjà !'
+        STDERR.puts "Si vous voulez rejouer la préparation, vous devez le supprimer d'abord."
+        exit -1
+      end
+      options[:file] = file
+      options[:lines] = CSV.open(file, mode = 'rb:Windows-1252', {:col_sep => '\\'}).readlines
+      if options[:lines][0] != %w(poste budget numero_ordre rang date_acte date_reception date_cloture nature_cession date_acquies date_bdr
+ date_certif_non_constestation date_effet date_ex_unique dem_ar multi_bc rap_ref etat_cession montant retenue mnt_mlv motif_clot
+ motif_cl_cp motif_rjt motif_rj_cp proposition_cloture_pic reference_opposant idt_tiers_opst nom_tiers_opst rib_opst idt_tiers_opse
+ tiers_opse rib_opse bloc_notes)
+        STDERR.puts "Le fichier #{file} n'a pas le bon format"
+        exit -1
+      end
+    else
+      STDERR.puts "Le fichier #{file} n'existe pas."
+      exit -1
+    end
+
+  end
+  opts.on('-e LOGIN:POSTE', /(.*):(\d{6})/, "Traitement sur la base école en utilisant l'utilisateur LOGIN et le poste POSTE") do |t|
+    options[:environnement] = 'base_ecole'
+    options[:login] = t[1]
+    options[:poste] = t[2]
+  end
+  opts.on('-l LOGIN', String, 'LOGIN pour la base école ou la base de production') do |login|
+    options[:login] = login
+  end
+  opts.on("-p LOGIN:POSTE", /(.*):(\d{6})/, "Traitement en production en utilisant l'utilisateur LOGIN et le poste POSTE") do |t|
+    options[:environnement] = "production"
+    options[:login] = t[1]
+    options[:poste] = t[2]
+  end
+  opts.on_tail("-h", "Affiche ce message") do
+    puts opts
+    exit
+  end
+
+  begin
+    ARGV << "-h" if ARGV.empty?
+    opts.parse!(ARGV)
+  rescue OptionParser::ParseError => e
+    STDERR.puts e.message, "\n", opts
+    exit -1
+  end
+
+  if options[:file]
+    Prep.prepare(options[:lines])
+  else
+    if options[:login]
+      driver = Selenium::WebDriver.for :firefox
+      driver.manage.timeouts.implicit_wait = 10 # seconds
+      if options[:environnement] == "production"
+        Init.connecte_base_ecole(driver, options[:login], options[:poste])
+      else
+        Init.connecte_production(driver, options[:login])
+      end
+      Init.ecran_crea_cop(driver, options[:poste])
+      Injecte.injecte(driver)
+    else
+      STDERR.puts "L'argument -l LOGIN est obligatoire pour le traitement"
+      exit -1
+    end
+  end
+end
+
